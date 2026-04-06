@@ -26,13 +26,31 @@ func isRunning(_ pid: Int32) -> Bool {
 
 // ─── Commands ─────────────────────────────────────────────────────
 
+func resolvedSelfPath() -> String {
+    var path = CommandLine.arguments[0]
+    if !path.hasPrefix("/") {
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        which.arguments = [path]
+        let pipe = Pipe()
+        which.standardOutput = pipe
+        try? which.run()
+        which.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        if let resolved = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !resolved.isEmpty {
+            path = resolved
+        }
+    }
+    return path
+}
+
 func cmdStart() {
     if let pid = readPID(), isRunning(pid) {
         print("Smack Attack is already running (PID \(pid)).")
         exit(0)
     }
 
-    let selfPath = CommandLine.arguments[0]
+    let selfPath = resolvedSelfPath()
     let task = Process()
     task.executableURL = URL(fileURLWithPath: selfPath)
     task.arguments = ["_run"]
@@ -88,21 +106,7 @@ func cmdUninstall() {
         print("Stopped running instance.")
     }
 
-    // Resolve full path (handles invocation via PATH)
-    var selfPath = CommandLine.arguments[0]
-    if !selfPath.hasPrefix("/") {
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        which.arguments = [selfPath]
-        let pipe = Pipe()
-        which.standardOutput = pipe
-        try? which.run()
-        which.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if let resolved = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !resolved.isEmpty {
-            selfPath = resolved
-        }
-    }
+    let selfPath = resolvedSelfPath()
 
     do {
         try FileManager.default.removeItem(atPath: selfPath)
