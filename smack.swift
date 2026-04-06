@@ -88,12 +88,27 @@ func cmdUninstall() {
         print("Stopped running instance.")
     }
 
-    let selfPath = CommandLine.arguments[0]
+    // Resolve full path (handles invocation via PATH)
+    var selfPath = CommandLine.arguments[0]
+    if !selfPath.hasPrefix("/") {
+        let which = Process()
+        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
+        which.arguments = [selfPath]
+        let pipe = Pipe()
+        which.standardOutput = pipe
+        try? which.run()
+        which.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        if let resolved = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !resolved.isEmpty {
+            selfPath = resolved
+        }
+    }
+
     do {
         try FileManager.default.removeItem(atPath: selfPath)
         print("✅ Smack Attack uninstalled.")
     } catch {
-        print("❌ Failed to remove binary. Try: sudo rm \(selfPath)")
+        print("❌ Failed to remove binary. Try: rm \(selfPath)")
     }
 }
 
