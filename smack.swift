@@ -27,21 +27,18 @@ func isRunning(_ pid: Int32) -> Bool {
 // ─── Commands ─────────────────────────────────────────────────────
 
 func resolvedSelfPath() -> String {
-    var path = CommandLine.arguments[0]
-    if !path.hasPrefix("/") {
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        which.arguments = [path]
-        let pipe = Pipe()
-        which.standardOutput = pipe
-        try? which.run()
-        which.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        if let resolved = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines), !resolved.isEmpty {
-            path = resolved
+    let arg0 = CommandLine.arguments[0]
+    if arg0.hasPrefix("/") { return arg0 }
+
+    // Search current process's PATH (avoids child-process PATH inheritance issues)
+    let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
+    for dir in pathEnv.split(separator: ":").map(String.init) {
+        let candidate = dir + "/" + arg0
+        if FileManager.default.isExecutableFile(atPath: candidate) {
+            return candidate
         }
     }
-    return path
+    return arg0
 }
 
 func cmdStart() {
