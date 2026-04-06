@@ -43,8 +43,13 @@ mv /tmp/smack "$INSTALL_DIR/$BINARY_NAME"
 
 # Add to PATH if not already there
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-  SHELL_RC="$HOME/.zshrc"
-  [ -n "$BASH_VERSION" ] && SHELL_RC="$HOME/.bashrc"
+  # Detect user's default shell (not the script's shell)
+  USER_SHELL=$(basename "$SHELL")
+  if [ "$USER_SHELL" = "zsh" ]; then
+    SHELL_RC="$HOME/.zshrc"
+  else
+    SHELL_RC="$HOME/.bashrc"
+  fi
   echo "" >> "$SHELL_RC"
   echo "# smack-attack" >> "$SHELL_RC"
   echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
