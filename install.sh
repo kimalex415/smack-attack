@@ -2,7 +2,7 @@
 set -e
 
 REPO="kimalex415/smack-attack"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="smack"
 
 # Detect architecture
@@ -36,9 +36,21 @@ curl -fsSL "$URL" -o /tmp/smack
 # Remove quarantine attribute (avoids Gatekeeper prompt)
 xattr -d com.apple.quarantine /tmp/smack 2>/dev/null || true
 
-# Install to /usr/local/bin
+# Install to ~/.local/bin (no sudo needed)
+mkdir -p "$INSTALL_DIR"
 chmod +x /tmp/smack
-sudo mv /tmp/smack "$INSTALL_DIR/$BINARY_NAME"
+mv /tmp/smack "$INSTALL_DIR/$BINARY_NAME"
+
+# Add to PATH if not already there
+if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+  SHELL_RC="$HOME/.zshrc"
+  [ -n "$BASH_VERSION" ] && SHELL_RC="$HOME/.bashrc"
+  echo "" >> "$SHELL_RC"
+  echo "# smack-attack" >> "$SHELL_RC"
+  echo "export PATH=\"\$HOME/.local/bin:\$PATH\"" >> "$SHELL_RC"
+  echo "   Added ~/.local/bin to PATH in $SHELL_RC"
+  echo "   Run: source $SHELL_RC"
+fi
 
 echo ""
 echo "✅ Smack Attack installed!"
