@@ -14,23 +14,15 @@ let pidFile   = (NSHomeDirectory() as NSString).appendingPathComponent(".smack.p
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-func readPID() -> Int32? {
-    guard let str = try? String(contentsOfFile: pidFile),
-          let pid = Int32(str.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
-    return pid
-}
-
-func isRunning(_ pid: Int32) -> Bool {
-    kill(pid, 0) == 0
-}
-
-// ─── Commands ─────────────────────────────────────────────────────
-
+/// Returns the absolute path of the running binary using Bundle,
+/// which reads from the kernel — reliable regardless of how the binary was invoked.
 func resolvedSelfPath() -> String {
+    if let path = Bundle.main.executablePath {
+        return path
+    }
+    // Fallback: walk current process PATH (not spawned child)
     let arg0 = CommandLine.arguments[0]
     if arg0.hasPrefix("/") { return arg0 }
-
-    // Search current process's PATH (avoids child-process PATH inheritance issues)
     let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
     for dir in pathEnv.split(separator: ":").map(String.init) {
         let candidate = dir + "/" + arg0
@@ -41,10 +33,43 @@ func resolvedSelfPath() -> String {
     return arg0
 }
 
+func readPID() -> Int32? {
+    guard let str = try? String(contentsOfFile: pidFile),
+          let pid = Int32(str.trimmingCharacters(in: .whitespacesAndNewlines)) else { return nil }
+    return pid
+}
+
+func isRunning(_ pid: Int32) -> Bool {
+    kill(pid, 0) == 0
+}
+
+/// Checks that the process at the given PID is actually our binary (guards against PID recycling).
+func isSmackProcess(_ pid: Int32) -> Bool {
+    let ps = Process()
+    ps.executableURL = URL(fileURLWithPath: "/bin/ps")
+    ps.arguments = ["-p", "\(pid)", "-o", "comm="]
+    let pipe = Pipe()
+    ps.standardOutput = pipe
+    ps.standardError = FileHandle.nullDevice
+    guard (try? ps.run()) != nil else { return false }
+    ps.waitUntilExit()
+    let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+    return output.trimmingCharacters(in: .whitespacesAndNewlines).contains("smack")
+}
+
+func cleanStalePID() {
+    try? FileManager.default.removeItem(atPath: pidFile)
+}
+
+// ─── Commands ─────────────────────────────────────────────────────
+
 func cmdStart() {
-    if let pid = readPID(), isRunning(pid) {
+    if let pid = readPID(), isRunning(pid), isSmackProcess(pid) {
         print("Smack Attack is already running (PID \(pid)).")
         exit(0)
+    } else {
+        // Clean up stale PID file if process is gone or not ours
+        cleanStalePID()
     }
 
     let selfPath = resolvedSelfPath()
@@ -74,11 +99,16 @@ func cmdStop() {
     }
     guard isRunning(pid) else {
         print("Smack Attack is not running. (cleaned up stale PID)")
-        try? FileManager.default.removeItem(atPath: pidFile)
+        cleanStalePID()
+        exit(0)
+    }
+    guard isSmackProcess(pid) else {
+        print("⚠️  PID \(pid) belongs to a different process. Cleaning up stale PID file.")
+        cleanStalePID()
         exit(0)
     }
     kill(pid, SIGTERM)
-    try? FileManager.default.removeItem(atPath: pidFile)
+    cleanStalePID()
     print("✅ Smack Attack stopped.")
 }
 
@@ -87,24 +117,22 @@ func cmdStatus() {
         print("Smack Attack is not running.")
         return
     }
-    if isRunning(pid) {
+    if isRunning(pid) && isSmackProcess(pid) {
         print("✅ Smack Attack is running (PID \(pid))")
     } else {
         print("Smack Attack is not running. (cleaned up stale PID)")
-        try? FileManager.default.removeItem(atPath: pidFile)
+        cleanStalePID()
     }
 }
 
 func cmdUninstall() {
-    // Stop if running
-    if let pid = readPID(), isRunning(pid) {
+    if let pid = readPID(), isRunning(pid), isSmackProcess(pid) {
         kill(pid, SIGTERM)
-        try? FileManager.default.removeItem(atPath: pidFile)
+        cleanStalePID()
         print("Stopped running instance.")
     }
 
     let selfPath = resolvedSelfPath()
-
     do {
         try FileManager.default.removeItem(atPath: selfPath)
         print("✅ Smack Attack uninstalled.")
@@ -125,10 +153,26 @@ func cmdRun() {
         ]
         try? dl.run()
         dl.waitUntilExit()
+
+        // Basic sanity check: ensure file exists and is non-trivially sized
+        let attrs = try? FileManager.default.attributesOfItem(atPath: soundPath)
+        let size = (attrs?[.size] as? Int) ?? 0
+        if size < 1024 {
+            // Likely a failed/partial download
+            try? FileManager.default.removeItem(atPath: soundPath)
+            cleanStalePID()
+            exit(1)
+        }
     }
 
     let detector = SmackDetector()
-    try! detector.start()
+    do {
+        try detector.start()
+    } catch {
+        // Clean up PID file so status/stop don't get confused
+        cleanStalePID()
+        exit(1)
+    }
     RunLoop.main.run()
 }
 
