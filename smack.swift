@@ -4,7 +4,7 @@ import AVFoundation
 import Foundation
 
 // ─── Config ───────────────────────────────────────────────────────
-let threshold: Float = 0.15      // sensitivity (lower = more sensitive)
+let threshold: Float = 0.08      // sensitivity (lower = more sensitive)
 let cooldown: TimeInterval = 1.5  // seconds between triggers
 
 // ─── Paths ────────────────────────────────────────────────────────
