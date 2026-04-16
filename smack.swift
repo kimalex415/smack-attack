@@ -14,23 +14,23 @@ let pidFile   = (NSHomeDirectory() as NSString).appendingPathComponent(".smack.p
 
 // ─── Helpers ──────────────────────────────────────────────────────
 
-/// Returns the absolute path of the running binary using Bundle,
-/// which reads from the kernel — reliable regardless of how the binary was invoked.
+/// Returns the absolute path of the running binary using _NSGetExecutablePath,
+/// which reads from the kernel — reliable regardless of CWD or how the binary was invoked.
+/// Note: Bundle.main.executablePath is NOT used here because for a standalone Swift binary
+/// (not an .app bundle), it resolves relative to the current working directory, returning
+/// e.g. "$CWD/smack" instead of the actual binary path.
 func resolvedSelfPath() -> String {
-    if let path = Bundle.main.executablePath {
-        return path
-    }
-    // Fallback: walk current process PATH (not spawned child)
-    let arg0 = CommandLine.arguments[0]
-    if arg0.hasPrefix("/") { return arg0 }
-    let pathEnv = ProcessInfo.processInfo.environment["PATH"] ?? ""
-    for dir in pathEnv.split(separator: ":").map(String.init) {
-        let candidate = dir + "/" + arg0
-        if FileManager.default.isExecutableFile(atPath: candidate) {
-            return candidate
-        }
-    }
-    return arg0
+ // Primary: ask the kernel directly via _NSGetExecutablePath
+ var size: UInt32 = 1024
+ var buf = [CChar](repeating: 0, count: Int(size))
+ if _NSGetExecutablePath(&buf, &size) == -1 {
+ // Buffer was too small; reallocate with the required size and retry
+ buf = [CChar](repeating: 0, count: Int(size))
+ _NSGetExecutablePath(&buf, &size)
+ }
+ let rawPath = String(cString: buf)
+ // Resolve any symlinks to get the canonical path
+ return (rawPath as NSString).resolvingSymlinksInPath
 }
 
 func readPID() -> Int32? {
